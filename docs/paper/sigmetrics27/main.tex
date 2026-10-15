@@ -1,9 +1,14 @@
 % ACM SIGMETRICS 2027 submission (Winter deadline: abstract 4 Jan 2027,
 % paper 11 Jan 2027, AoE). The class options are the ones the call for papers
 % prescribes, plus `anonymous`, which hides the author block for double
-% anonymous review without changing the layout. For the camera-ready version,
-% remove `anonymous` and `review`.
-\documentclass[acmsmall,screen,review,anonymous]{acmart}
+% anonymous review without changing the layout. `review` adds the line
+% numbers reviewers cite. preview-authors.tex defines \authorspreview and
+% inputs this file to show the camera-ready author block; never submit that.
+\ifdefined\authorspreview
+  \documentclass[acmsmall,screen]{acmart}
+\else
+  \documentclass[acmsmall,screen,review,anonymous]{acmart}
+\fi
 
 \usepackage{booktabs}
 \usepackage{multirow}
@@ -16,23 +21,51 @@
 
 \title[When Does Risk-Controlled Throughput Forecasting Control Risk?]{When Does Risk-Controlled Throughput Forecasting Actually Control Risk? A Reproduction Study on LEO Satellite Links}
 
+% Hidden in the submission by `anonymous`. Emails for everyone but the first
+% author are still to be added; ACM needs one per author for the camera-ready.
 \author{Mayan Sharma}
+\email{mayan25sharma@gmail.com}
 \affiliation{%
+  \department{School of Computer Science and Engineering}
   \institution{Vellore Institute of Technology}
   \city{Chennai}
-  \country{India}}
-\author{Kriti Saini}
-\affiliation{%
-  \institution{Vellore Institute of Technology}
-  \city{Chennai}
-  \country{India}}
-\author{Devansh Behl}
-\affiliation{%
-  \institution{Vellore Institute of Technology}
-  \city{Chennai}
+  \state{Tamil Nadu}
   \country{India}}
 
-\renewcommand{\shortauthors}{Anonymous}
+\author{Kriti Saini}
+\affiliation{%
+  \department{School of Computer Science and Engineering}
+  \institution{Vellore Institute of Technology}
+  \city{Chennai}
+  \state{Tamil Nadu}
+  \country{India}}
+
+\author{Devansh Behl}
+\affiliation{%
+  \department{School of Computer Science and Engineering}
+  \institution{Vellore Institute of Technology}
+  \city{Chennai}
+  \state{Tamil Nadu}
+  \country{India}}
+
+\author{Suganya R}
+\affiliation{%
+  \position{Professor}
+  \department{School of Computer Science and Engineering}
+  \institution{Vellore Institute of Technology}
+  \city{Chennai}
+  \state{Tamil Nadu}
+  \country{India}}
+
+\author{S. Vijayaragavan}
+\affiliation{%
+  \position{Professor of Practice}
+  \institution{Nelco Network Products Ltd.}
+  \country{India}}
+
+\ifdefined\authorspreview\else
+  \renewcommand{\shortauthors}{Anonymous}
+\fi
 
 \begin{abstract}
 Risk-budgeted throughput forecasting has been proposed as a way to make LEO satellite capacity estimates safe for admission control: a point forecast is converted into a conservative bound whose overestimation rate is held at a user-specified budget. We reproduce the state of the art, BG-CFQS, on the three Starlink traces its authors used and on an independent fourth dataset, and report four findings.
