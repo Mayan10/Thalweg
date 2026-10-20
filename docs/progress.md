@@ -570,3 +570,24 @@ in the committed tables is the one path string they quote.
 An existing compose stack needs `docker compose down -v` once, because the
 Postgres role and database were renamed and an old volume still holds the old
 ones.
+
+## Phase 11. The protection layer on the live demo
+
+Status: done, 2026-10-20.
+
+Until now the protection layer existed only as a batch experiment and its
+figures. Every decision on the API stream now carries a `protection` block: the
+calibrated bound divided across the modelled workload by the protection layer
+and by throttle-largest-first, on one seed so both see the same flows. The TUI
+shows it on a new screen, `p`. `docs/demo-runbook.md` has what to point at.
+
+The live path is the evaluated code. The body of `run_policy` became
+`eval.protection.PolicyStepper`, `run_policy` output is identical before and
+after on four arms, and `tests/test_demo_protection.py` pins the rates on screen
+to the rates `run_policy` scores, slot for slot.
+
+A full replay of the real Canada stream at the default `--flow-load 1.8` gives
+critical floor violation 0.070 against 0.203, against the committed 0.065 and
+0.218. The first ten minutes run hotter, because the Canada test split opens on
+a stretch averaging about 98 Mbps against a 152 Mbps mean. The runbook says not
+to quote the live tiles.

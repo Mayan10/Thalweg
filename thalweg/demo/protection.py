@@ -153,7 +153,7 @@ class LiveProtection:
         # demand: the big flows are where the two policies disagree, and an
         # elastic flow's demand moves every slot, which would reshuffle the
         # table under the audience.
-        rows.sort(key=lambda r: (-r.pop("nominal_mbps"), r["flow_id"]))
+        rows.sort(key=lambda r: (-r["nominal_mbps"], r["flow_id"]))
 
         return {
             "n_flows": len(rows),

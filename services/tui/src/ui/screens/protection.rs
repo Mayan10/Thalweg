@@ -28,7 +28,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let rows = Layout::vertical([
         Constraint::Length(3),  // chrome
         Constraint::Length(5),  // KPI tiles
-        Constraint::Length(12), // archetype table
+        Constraint::Length(11), // archetype table: header and eight kinds
         Constraint::Length(5),  // paired sparklines
         Constraint::Min(4),     // flow table
         Constraint::Length(1),  // provenance footer
@@ -87,16 +87,16 @@ fn render_kpis(frame: &mut Frame, app: &App, prot: &ProtectionSnapshot, area: Re
             color: theme::FG_PRIMARY,
         },
         widgets::Kpi {
-            label: "UNDER FLOOR · OURS",
+            label: "OURS < FLOOR",
             value: rate(prot.ours.critical_violation),
             // Critical flow-slots allocated below floor, since the stream began.
-            note: format!("critical, delivered {}", rate(prot.ours.critical_violation_delivered)),
+            note: format!("delivered {}", rate(prot.ours.critical_violation_delivered)),
             color: OURS,
         },
         widgets::Kpi {
-            label: "UNDER FLOOR · LARGEST",
+            label: "LARGEST < FLOOR",
             value: rate(prot.baseline.critical_violation),
-            note: format!("critical, delivered {}", rate(prot.baseline.critical_violation_delivered)),
+            note: format!("delivered {}", rate(prot.baseline.critical_violation_delivered)),
             color: BASELINE,
         },
         widgets::Kpi {
@@ -259,7 +259,7 @@ fn render_flows(frame: &mut Frame, prot: &ProtectionSnapshot, area: Rect) {
         Cell::from("STATE"),
         Cell::from("DEADLINE"),
         Cell::from("FLOOR"),
-        Cell::from("ASKS"),
+        Cell::from("ASKS NOW"),
         Cell::from(Span::styled("OURS", theme::fg_bold(OURS))),
         Cell::from(Span::styled("THROTTLE LARGEST", theme::fg_bold(BASELINE))),
     ])
@@ -274,7 +274,7 @@ fn render_flows(frame: &mut Frame, prot: &ProtectionSnapshot, area: Rect) {
         Constraint::Length(11),
         Constraint::Length(9),
         Constraint::Length(7),
-        Constraint::Length(7),
+        Constraint::Length(8),
         Constraint::Length(8),
         Constraint::Min(16),
     ];
@@ -290,7 +290,7 @@ fn flow_row(f: &FlowRow) -> Row<'static> {
 
     let state = if f.protected {
         Span::styled(" PROTECTED ", theme::chip(theme::CYAN))
-    } else if f.ours_mbps < f.demand_mbps - 0.05 {
+    } else if f.ours_mbps < f.nominal_mbps.max(f.demand_mbps) * 0.95 {
         Span::styled(" throttled", theme::text_secondary())
     } else {
         Span::styled(" full rate", theme::text_dim())

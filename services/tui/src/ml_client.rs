@@ -74,6 +74,11 @@ pub struct FlowRow {
     pub criticality: f64,
     pub protected: bool,
     pub demand_mbps: f64,
+    /// What the flow asks for unthrottled. An elastic flow's current demand
+    /// collapses toward what it was given, so this is the reference for
+    /// whether it is being held back.
+    #[serde(default)]
+    pub nominal_mbps: f64,
     pub floor_mbps: f64,
     pub ours_mbps: f64,
     pub baseline_mbps: Option<f64>,
