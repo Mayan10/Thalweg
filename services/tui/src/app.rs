@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use std::io::{self, Stdout};
 use std::time::{Duration, Instant};
 
-use crate::ml_client::{self, DecisionRecord, MlConnectionState, MlMessage};
+use crate::ml_client::{self, DecisionRecord, MlConnectionState, MlMessage, ProtectionSnapshot};
 use crate::ui;
 
 /// Maximum number of data points kept in the rolling buffers (~5 min at 1 Hz).
@@ -17,6 +17,7 @@ pub enum Screen {
     Home,
     Login,
     MlDashboard,
+    Protection,
 }
 
 impl Screen {
@@ -26,6 +27,7 @@ impl Screen {
             Screen::Home => "HOME",
             Screen::Login => "AUTHENTICATE",
             Screen::MlDashboard => "ML MONITOR",
+            Screen::Protection => "FLOW PROTECTION",
         }
     }
 }
@@ -78,6 +80,13 @@ pub struct App {
     /// dashboard judges the realised rate against this rather than against a
     /// hardcoded 0.35, which was wrong for any run started with --epsilon.
     pub ml_epsilon: f64,
+    // ── Protection layer ─────────────────────────────────────────────────
+    /// The latest protection snapshot, if the server is running the layer.
+    pub prot_latest: Option<ProtectionSnapshot>,
+    /// Critical flows allocated below their floor on each slot, under our
+    /// policy and under throttle-largest, for the paired sparklines.
+    pub prot_ours_below: VecDeque<u64>,
+    pub prot_baseline_below: VecDeque<u64>,
     /// Channel for receiving ML data from the background WebSocket task.
     pub ml_rx: tokio::sync::mpsc::Receiver<MlMessage>,
 }
@@ -127,6 +136,9 @@ impl App {
             ml_epsilon: 0.35,
             ml_total_dropped: 0,
             ml_total_congested_slots: 0,
+            prot_latest: None,
+            prot_ours_below: VecDeque::with_capacity(ML_BUFFER_SIZE),
+            prot_baseline_below: VecDeque::with_capacity(ML_BUFFER_SIZE),
             ml_rx,
         }
     }
@@ -158,7 +170,15 @@ impl App {
     }
 
     /// Process a single ML decision record into the rolling buffers.
-    fn ingest_decision(&mut self, record: DecisionRecord) {
+    fn ingest_decision(&mut self, mut record: DecisionRecord) {
+        if let Some(prot) = record.protection.take() {
+            let critical = |f: fn(&ml_client::ArchetypeRow) -> u64| -> u64 {
+                prot.archetypes.iter().filter(|a| a.must_keep).map(f).sum()
+            };
+            Self::push_rolling_u64(&mut self.prot_ours_below, critical(|a| a.ours_below_floor));
+            Self::push_rolling_u64(&mut self.prot_baseline_below, critical(|a| a.baseline_below_floor));
+            self.prot_latest = Some(prot);
+        }
         Self::push_rolling(&mut self.ml_actual, record.actual_mbps);
         Self::push_rolling(&mut self.ml_predicted, record.predicted_mbps);
         Self::push_rolling(&mut self.ml_bound, record.bound_mbps);
@@ -316,6 +336,7 @@ impl App {
             KeyCode::Char('h') => self.navigate(Screen::Home),
             KeyCode::Char('k') => self.navigate(Screen::Login),
             KeyCode::Char('m') => self.navigate(Screen::MlDashboard),
+            KeyCode::Char('p') => self.navigate(Screen::Protection),
             _ => {}
         }
     }
@@ -335,6 +356,7 @@ impl App {
                 self.current_screen = Screen::Home;
             }
             "/ml" | "/forecast" | "/monitor" => self.navigate(Screen::MlDashboard),
+            "/flows" | "/protect" => self.navigate(Screen::Protection),
             "/quit" | "/exit" => self.should_quit = true,
             _ => {}
         }

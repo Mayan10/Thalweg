@@ -28,6 +28,74 @@ pub struct DecisionRecord {
     pub risk_event: bool,
     pub congested: bool,
     pub realised_risk_rate: f64,
+    /// Parsed separately from the rest of the record (see `connect_and_stream`)
+    /// so a protection block this build does not understand cannot cost the
+    /// dashboard its decision.
+    #[serde(skip)]
+    pub protection: Option<ProtectionSnapshot>,
+}
+
+/// One policy's running counts since the stream started. Mirrors `_Tally` in
+/// `thalweg/demo/protection.py`.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PolicyTally {
+    /// Fraction of critical flow-slots allocated below their floor.
+    pub critical_violation: Option<f64>,
+    /// The same, after the link had its say.
+    pub critical_violation_delivered: Option<f64>,
+    pub critical_gave_up: u64,
+    pub ordinary_gave_up: u64,
+}
+
+/// One archetype on the current slot, summed over its flows under each policy.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ArchetypeRow {
+    pub archetype: String,
+    pub must_keep: bool,
+    pub declared: String,
+    pub n_ours: u64,
+    pub n_baseline: u64,
+    pub n_protected: u64,
+    pub mean_criticality: Option<f64>,
+    pub demand_mbps: f64,
+    pub ours_mbps: f64,
+    pub baseline_mbps: f64,
+    pub ours_below_floor: u64,
+    pub baseline_below_floor: u64,
+}
+
+/// One flow alive under our policy, with what the baseline did to the same flow.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FlowRow {
+    pub flow_id: String,
+    pub archetype: String,
+    /// The workload's stipulated label. The scorer never sees it.
+    pub must_keep: bool,
+    pub criticality: f64,
+    pub protected: bool,
+    pub demand_mbps: f64,
+    pub floor_mbps: f64,
+    pub ours_mbps: f64,
+    pub baseline_mbps: Option<f64>,
+    /// "active", "gave_up", "done" or "absent".
+    pub baseline_state: String,
+    pub deadline_s: Option<f64>,
+}
+
+/// What the protection layer did with one decision's bound.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ProtectionSnapshot {
+    pub n_flows: u64,
+    pub n_protected: u64,
+    pub breached: bool,
+    pub offered_mbps: f64,
+    pub seconds_per_slot: f64,
+    pub ours: PolicyTally,
+    pub baseline: PolicyTally,
+    #[serde(default)]
+    pub archetypes: Vec<ArchetypeRow>,
+    #[serde(default)]
+    pub flows: Vec<FlowRow>,
 }
 
 /// Handshake message sent by the server on connection.
@@ -131,7 +199,11 @@ async fn connect_and_stream(
                         }
                     }
                     Some("decision") => {
-                        if let Ok(record) = serde_json::from_value::<DecisionRecord>(value) {
+                        let protection = value
+                            .get("protection")
+                            .and_then(|p| serde_json::from_value::<ProtectionSnapshot>(p.clone()).ok());
+                        if let Ok(mut record) = serde_json::from_value::<DecisionRecord>(value) {
+                            record.protection = protection;
                             let _ = tx.send(MlMessage::Decision(record)).await;
                         }
                     }

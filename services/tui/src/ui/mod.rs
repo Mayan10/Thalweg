@@ -19,6 +19,7 @@ pub fn render(frame: &mut Frame, app: &App) {
         Screen::Home => screens::home::render(frame, app, chunks[0]),
         Screen::Login => screens::login::render(frame, app, chunks[0]),
         Screen::MlDashboard => screens::ml_dashboard::render(frame, app, chunks[0]),
+        Screen::Protection => screens::protection::render(frame, app, chunks[0]),
     }
 
     components::command_bar::render(frame, app, chunks[1]);

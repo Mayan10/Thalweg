@@ -16,7 +16,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let cols = Layout::horizontal([Constraint::Min(0), Constraint::Length(46)]).split(inner);
+    let cols = Layout::horizontal([Constraint::Min(0), Constraint::Length(56)]).split(inner);
 
     // ── Prompt ──
     let prompt = if app.is_typing_command {
@@ -35,7 +35,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
             Span::styled(" / ", theme::chip(theme::ACCENT_DIM)),
             Span::styled("  commands  ", theme::text_dim()),
             Span::styled(
-                "/home  /ml  /login  /logout  /quit",
+                "/home  /ml  /flows  /login  /logout  /quit",
                 theme::text_ghost(),
             ),
         ])
@@ -55,6 +55,8 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
             Span::styled("home  ", theme::key_desc()),
             Span::styled(" m ", theme::key_badge()),
             Span::styled("ml monitor  ", theme::key_desc()),
+            Span::styled(" p ", theme::key_badge()),
+            Span::styled("flows  ", theme::key_desc()),
             Span::styled(" k ", theme::key_badge()),
             Span::styled("login  ", theme::key_desc()),
             Span::styled(" q ", theme::key_badge()),
@@ -72,7 +74,7 @@ pub fn render(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Inline ghost completion for a partially typed command.
 fn suggestion(input: &str) -> &'static str {
-    const COMMANDS: [&str; 5] = ["/home", "/ml", "/login", "/logout", "/quit"];
+    const COMMANDS: [&str; 6] = ["/home", "/ml", "/flows", "/login", "/logout", "/quit"];
     if input.len() < 2 {
         return "";
     }
