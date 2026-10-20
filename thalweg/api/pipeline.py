@@ -39,6 +39,7 @@ from thalweg.config import (
     StarNetConfig,
 )
 from thalweg.demo import DecisionRecord, DemoEngine
+from thalweg.demo.protection import LiveProtection
 from thalweg.device import resolve_device
 from thalweg.eval.runner import build_backbone, prepare
 from thalweg.forecast.train import train_model
@@ -64,6 +65,10 @@ class PipelineSpec:
     # which the sustained-window rule turns into occasional episodes rather
     # than a constant alarm. Override with --commitment.
     commitment_mbps: float = 200.0
+    # Unconstrained flow demand over the link's mean delivered throughput, for
+    # the protection layer that runs beside every decision. 1.8 is the point
+    # the committed protection results are quoted at. 0 turns it off.
+    flow_load: float = 1.8
     synthetic_seconds: int = 6000
     seed: int = 1337
 
@@ -102,6 +107,7 @@ class TrainedPipeline:
             "direction": self.config.direction,
             "feature_set": self.feature_set,
             "n_test_samples": int(len(self.predicted_test)),
+            "flow_load": self.spec.flow_load,
         }
 
     def stream(self, steps: int = 0) -> Iterator[DecisionRecord]:
@@ -116,14 +122,26 @@ class TrainedPipeline:
         """
         n = len(self.predicted_test)
         engine = self.new_engine()
+        # Sized against what this link delivers, so the same --flow-load means
+        # the same congestion on every location.
+        protection = (LiveProtection.for_link(float(np.mean(self.actual_test)),
+                                              load=self.spec.flow_load,
+                                              seed=self.spec.seed)
+                      if self.spec.flow_load > 0 else None)
         start = datetime.now(UTC)
         step = 0
         while not steps or step < steps:
             t = step % n
-            yield engine.step(
+            record = engine.step(
                 step, (start + timedelta(seconds=step)).isoformat(),
                 float(self.predicted_test[t]), float(self.actual_test[t]),
                 self.regime_test.iloc[[t]].reset_index(drop=True))
+            if protection is not None:
+                # The bound is divided before the outcome is used, inside the
+                # stepper, the same ordering the rest of the stream keeps.
+                record.protection = protection.step(step, record.bound_mbps,
+                                                    record.actual_mbps)
+            yield record
             step += 1
 
 

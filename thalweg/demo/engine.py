@@ -60,9 +60,16 @@ class DecisionRecord:
     risk_event: bool
     congested: bool
     realised_risk_rate: float
+    #: What the protection layer did with this decision's bound, when the
+    #: stream runs one (`demo/protection.py`). Left out of `to_dict` when absent
+    #: so the decision tables the batch scripts write keep their columns.
+    protection: dict | None = None
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        out = asdict(self)
+        if out["protection"] is None:
+            del out["protection"]
+        return out
 
 
 @dataclass

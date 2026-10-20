@@ -231,6 +231,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--epochs", type=int, default=PipelineSpec.epochs)
     parser.add_argument("--stride", type=int, default=PipelineSpec.stride)
     parser.add_argument("--commitment", type=float, default=PipelineSpec.commitment_mbps)
+    parser.add_argument("--flow-load", type=float, default=PipelineSpec.flow_load,
+                        help="Flow demand over mean link throughput for the "
+                             "protection layer; 0 turns it off")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args(argv)
 
@@ -241,6 +244,7 @@ def main(argv: list[str] | None = None) -> None:
         mode="synthetic" if args.synthetic else args.mode,
         location=args.location, epsilon=args.epsilon, epochs=args.epochs,
         stride=args.stride, commitment_mbps=args.commitment,
+        flow_load=args.flow_load,
     )
 
     import uvicorn
