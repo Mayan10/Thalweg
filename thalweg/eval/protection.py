@@ -50,6 +50,8 @@ from thalweg.eval.workload import FlowWorkload, WorkloadSpec, oracle_view
 __all__ = [
     "ORACLE",
     "PolicyRun",
+    "PolicyStepper",
+    "SlotStep",
     "average_precision",
     "jain_index",
     "run_policy",
@@ -234,6 +236,75 @@ def _median_detect(flows: pd.DataFrame) -> float:
     return float(detected["detect_slots"].median()) if len(detected) else float("nan")
 
 
+@dataclass
+class SlotStep:
+    """What one policy did on one slot: what it saw, what it wrote, and what the
+    link then carried."""
+
+    observations: dict
+    flows: list[FlowDemand]
+    result: AllocationResult
+    delivered: dict[str, float]
+
+
+class PolicyStepper:
+    """One policy over its own workload, advanced one slot at a time.
+
+    This is the body of `run_policy` and nothing else, pulled out so that the
+    live demo can drive the evaluated code one decision at a time instead of a
+    copy of it. Two steppers built with the same workload spec see identical
+    arrivals, which is what makes a side-by-side comparison of two policies a
+    comparison of what they did about the same flows.
+    """
+
+    def __init__(self, policy: str, workload_spec: WorkloadSpec | None = None,
+                 scorer_config: ScorerConfig | None = None,
+                 protection_config: ProtectionConfig | None = None) -> None:
+        if policy != ORACLE and policy not in POLICIES:
+            raise ValueError(f"unknown policy {policy!r}, expected one of "
+                             f"{sorted(POLICIES) + [ORACLE]}")
+        self.policy = policy
+        self.protection_config = protection_config
+        self.workload = FlowWorkload(workload_spec or WorkloadSpec())
+        self.workload.warm_start(0)
+        self.scorer = CriticalityScorer(scorer_config)
+        self.allocate: Callable[..., AllocationResult] = (
+            allocate_protected if policy == ORACLE else POLICIES[policy])
+        self.first_protected: dict[str, int] = {}
+        self.first_seen: dict[str, int] = {}
+
+    def step(self, t: int, capacity_mbps: float, realised_mbps: float) -> SlotStep | None:
+        """Allocate `capacity_mbps` across the flows alive at slot `t`, then let
+        the link deliver `realised_mbps`. None when no flow is alive."""
+        observations = self.workload.observe(t)
+        if not observations:
+            return None
+
+        if self.policy == ORACLE:
+            criticality = oracle_view(observations)
+            protected = {k: bool(v >= 0.5) for k, v in criticality.items()}
+        else:
+            criticality = self.scorer.update(t, observations)
+            protected = {k: self.scorer.is_protected(k) for k in observations}
+
+        flows: list[FlowDemand] = []
+        for flow_id, (spec, obs) in observations.items():
+            self.first_seen.setdefault(flow_id, t)
+            if protected[flow_id] and flow_id not in self.first_protected:
+                self.first_protected[flow_id] = t
+            demand = max(obs.demand_mbps, 0.0) or spec.demand_mbps
+            flows.append(FlowDemand(
+                flow_id=flow_id, demand_mbps=demand,
+                floor_mbps=min(spec.floor_mbps, demand),
+                criticality=criticality[flow_id], protected=protected[flow_id],
+                declared=spec.declared,
+            ))
+
+        result = self.allocate(capacity_mbps, flows, self.protection_config)
+        delivered = self.workload.apply(t, result.rates, realised_mbps)
+        return SlotStep(observations, flows, result, delivered)
+
+
 def run_policy(policy: str, capacity_mbps: np.ndarray, realised_mbps: np.ndarray,
                workload_spec: WorkloadSpec | None = None,
                scorer_config: ScorerConfig | None = None,
@@ -256,48 +327,19 @@ def run_policy(policy: str, capacity_mbps: np.ndarray, realised_mbps: np.ndarray
     realised_mbps = np.asarray(realised_mbps, dtype=float).ravel()
     if capacity_mbps.shape != realised_mbps.shape:
         raise ValueError("capacity and realised series must be the same length")
-    if policy != ORACLE and policy not in POLICIES:
-        raise ValueError(f"unknown policy {policy!r}, expected one of "
-                         f"{sorted(POLICIES) + [ORACLE]}")
 
-    workload = FlowWorkload(workload_spec or WorkloadSpec())
-    workload.warm_start(0)
-    scorer = CriticalityScorer(scorer_config)
-    allocate: Callable[..., AllocationResult] = (
-        allocate_protected if policy == ORACLE else POLICIES[policy])
+    stepper = PolicyStepper(policy, workload_spec, scorer_config, protection_config)
+    scorer = stepper.scorer
 
     rows: list[dict] = []
     slot_rows: list[dict] = []
-    first_protected: dict[str, int] = {}
-    first_seen: dict[str, int] = {}
 
     for t in range(capacity_mbps.size):
-        observations = workload.observe(t)
-        if not observations:
+        slot = stepper.step(t, capacity_mbps[t], realised_mbps[t])
+        if slot is None:
             continue
-
-        if policy == ORACLE:
-            criticality = oracle_view(observations)
-            protected = {k: bool(v >= 0.5) for k, v in criticality.items()}
-        else:
-            criticality = scorer.update(t, observations)
-            protected = {k: scorer.is_protected(k) for k in observations}
-
-        flows: list[FlowDemand] = []
-        for flow_id, (spec, obs) in observations.items():
-            first_seen.setdefault(flow_id, t)
-            if protected[flow_id] and flow_id not in first_protected:
-                first_protected[flow_id] = t
-            demand = max(obs.demand_mbps, 0.0) or spec.demand_mbps
-            flows.append(FlowDemand(
-                flow_id=flow_id, demand_mbps=demand,
-                floor_mbps=min(spec.floor_mbps, demand),
-                criticality=criticality[flow_id], protected=protected[flow_id],
-                declared=spec.declared,
-            ))
-
-        result = allocate(capacity_mbps[t], flows, protection_config)
-        delivered = workload.apply(t, result.rates, realised_mbps[t])
+        observations, flows, result, delivered = (
+            slot.observations, slot.flows, slot.result, slot.delivered)
 
         for flow in flows:
             spec, obs = observations[flow.flow_id]
@@ -337,11 +379,12 @@ def run_policy(policy: str, capacity_mbps: np.ndarray, realised_mbps: np.ndarray
     records = pd.DataFrame(rows)
     return PolicyRun(
         policy=policy, records=records, slots=pd.DataFrame(slot_rows),
-        flows=_flow_table(workload, first_seen, first_protected),
+        flows=_flow_table(stepper.workload, stepper.first_seen,
+                          stepper.first_protected),
         scorer_flaps=scorer.flap_rate() if policy != ORACLE else float("nan"),
         config={
             "policy": policy,
-            "workload": vars(workload.spec),
+            "workload": vars(stepper.workload.spec),
             "scorer": _scorer_snapshot(scorer_config),
             "protection": vars(protection_config or ProtectionConfig()),
         },
